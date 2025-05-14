@@ -13,11 +13,33 @@
                 - What is an action here?
 """
 import pdb
-
 import gym
-
 from env.custom_hopper import *
+import numpy as np
+from IPython.display import HTML
+from IPython import display
+import PIL.Image
+from base64 import b64encode
 
+def create_video_frames(frames, filename='animation.gif', _return=True):
+    """
+    Save frames as an animated GIF or return HTML animation.
+    """
+    # Save as GIF
+    frames[0].save(
+        filename,
+        save_all=True,
+        append_images=frames[1:],
+        duration=50,
+        loop=0,
+    )
+    
+    if _return:
+        # Create HTML animation for notebook display
+        with open(filename, 'rb') as f:
+            video_file = f.read()
+        video_url = data_uri = f'data:image/gif;base64,{b64encode(video_file).decode()}'
+        return HTML(f'<img src="{video_url}" />')
 
 def main():
 	env = gym.make('CustomHopper-source-v0')
@@ -27,23 +49,27 @@ def main():
 	print('Action space:', env.action_space) # action-space
 	print('Dynamics parameters:', env.get_parameters()) # masses of each link of the Hopper
 
-	n_episodes = 500
-	render = True
+	n_episodes = 2  # Reduced number of episodes for visualization
+	frames = []  # Store frames for animation
 
 	for episode in range(n_episodes):
 		done = False
 		state = env.reset()	# Reset environment to initial state
 
 		while not done:  # Until the episode is over
-
 			action = env.action_space.sample()	# Sample random action
-		
 			state, reward, done, info = env.step(action)	# Step the simulator to the next timestep
 
-			if render:
-				env.render()
+			# Render and capture frame
+			frame = env.render(mode='rgb_array')
+			# Convert to PIL Image
+			frame = PIL.Image.fromarray(frame)
+			frames.append(frame)
 
-	
+	# Create and display animation
+	return create_video_frames(frames)
 
 if __name__ == '__main__':
-	main()
+	video = main()
+	if 'google.colab' in str(get_ipython()):
+		display.display(video)

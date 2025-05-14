@@ -100,48 +100,44 @@ class CriticNetwork(nn.Module):
         return self.fc3(x)
 
 
-class REINFORCEAgent:
-    def __init__(self, env, learning_rate=1e-3, baseline=False):
+class ActorCriticAgent:
+    def __init__(self, env, learning_rate=1e-3):
         self.env = env
         self.policy_network = PolicyNetwork(
             state_dim=env.observation_space.shape[0],
             action_dim=env.action_space.shape[0]
         )
-        self.optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
-        self.baseline = baseline
-        if baseline:
-            self.value_network = CriticNetwork(state_dim=env.observation_space.shape[0])
-            self.value_optimizer = optim.Adam(self.value_network.parameters(), lr=learning_rate)
+        self.value_network = CriticNetwork(state_dim=env.observation_space.shape[0])
+        self.policy_optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
+        self.value_optimizer = optim.Adam(self.value_network.parameters(), lr=learning_rate)
 
     def select_action(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0)
-        probs = self.policy_network(state)
-        action = np.random.choice(len(probs.squeeze().detach().numpy()), p=probs.squeeze().detach().numpy())
+        action_probs = self.policy_network(state)
+        action = np.random.choice(len(action_probs.squeeze().detach().numpy()), p=action_probs.squeeze().detach().numpy())
         return action
 
-    def update_policy(self, rewards, log_probs, states=None):
+    def update_policy(self, rewards, log_probs, states):
         discounted_rewards = self.compute_discounted_rewards(rewards)
-        if self.baseline and states is not None:
-            states = torch.tensor(states, dtype=torch.float32)
-            values = self.value_network(states).squeeze()
-            advantages = discounted_rewards - values.detach()
+        states = torch.tensor(states, dtype=torch.float32)
+        values = self.value_network(states).squeeze()
+        advantages = discounted_rewards - values.detach()
 
-            # Update value network
-            value_loss = nn.functional.mse_loss(values, discounted_rewards)
-            self.value_optimizer.zero_grad()
-            value_loss.backward()
-            self.value_optimizer.step()
-        else:
-            advantages = discounted_rewards
+        # Update value network
+        value_loss = nn.functional.mse_loss(values, discounted_rewards)
+        self.value_optimizer.zero_grad()
+        value_loss.backward()
+        self.value_optimizer.step()
 
+        # Update policy network
         policy_loss = []
         for log_prob, advantage in zip(log_probs, advantages):
             policy_loss.append(-log_prob * advantage)
         policy_loss = torch.cat(policy_loss).sum()
 
-        self.optimizer.zero_grad()
+        self.policy_optimizer.zero_grad()
         policy_loss.backward()
-        self.optimizer.step()
+        self.policy_optimizer.step()
 
     def compute_discounted_rewards(self, rewards, gamma=0.99):
         discounted_rewards = np.zeros_like(rewards)

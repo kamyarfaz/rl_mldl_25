@@ -87,14 +87,29 @@ class Policy(torch.nn.Module):
         return normal_dist
 
 
-class REINFORCEAgent:
+class CriticNetwork(nn.Module):
+    def __init__(self, state_dim, hidden_dim=128):
+        super(CriticNetwork, self).__init__()
+        self.fc1 = nn.Linear(state_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, 1)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        return self.fc3(x)
+
+
+class ActorCriticAgent:
     def __init__(self, env, learning_rate=1e-3):
         self.env = env
         self.policy_network = PolicyNetwork(
             state_dim=env.observation_space.shape[0],
             action_dim=env.action_space.n
         )
-        self.optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
+        self.critic_network = CriticNetwork(state_dim=env.observation_space.shape[0])
+        self.policy_optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
+        self.critic_optimizer = optim.Adam(self.critic_network.parameters(), lr=learning_rate)
 
     def select_action(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0)
@@ -102,15 +117,26 @@ class REINFORCEAgent:
         action = np.random.choice(len(probs.squeeze().detach().numpy()), p=probs.squeeze().detach().numpy())
         return action
 
-    def update_policy(self, rewards, log_probs):
+    def update_policy(self, rewards, log_probs, states):
         discounted_rewards = self.compute_discounted_rewards(rewards)
-        loss = []
-        for log_prob, reward in zip(log_probs, discounted_rewards):
-            loss.append(-log_prob * reward)
-        loss = torch.cat(loss).sum()
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+        states = torch.tensor(states, dtype=torch.float32)
+        values = self.critic_network(states).squeeze()
+        advantages = discounted_rewards - values.detach()
+
+        policy_loss = []
+        for log_prob, advantage in zip(log_probs, advantages):
+            policy_loss.append(-log_prob * advantage)
+        policy_loss = torch.cat(policy_loss).sum()
+
+        self.policy_optimizer.zero_grad()
+        policy_loss.backward()
+        self.policy_optimizer.step()
+
+        # Update critic
+        value_loss = nn.functional.mse_loss(values, discounted_rewards)
+        self.critic_optimizer.zero_grad()
+        value_loss.backward()
+        self.critic_optimizer.step()
 
     def compute_discounted_rewards(self, rewards, gamma=0.99):
         discounted_rewards = np.zeros_like(rewards)
@@ -118,7 +144,7 @@ class REINFORCEAgent:
         for t in reversed(range(len(rewards))):
             cumulative_reward = rewards[t] + gamma * cumulative_reward
             discounted_rewards[t] = cumulative_reward
-        return discounted_rewards
+        return torch.tensor(discounted_rewards, dtype=torch.float32)
 
 
 class Agent(object):

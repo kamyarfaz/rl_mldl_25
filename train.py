@@ -7,7 +7,7 @@ import torch
 import gym
 
 from env.custom_hopper import *
-from agent import Agent, Policy
+from agent import Agent, Policy, REINFORCEAgent
 
 
 def parse_args():
@@ -68,6 +68,33 @@ def main():
 	torch.save(agent.policy.state_dict(), "model.mdl")
 
 	
+
+def train_reinforce(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
+    # Initialize environment and agent
+    env = gym.make(env_name)
+    agent = REINFORCEAgent(env, learning_rate)
+
+    for episode in range(n_episodes):
+        state = env.reset()
+        log_probs = []
+        rewards = []
+        done = False
+
+        while not done:
+            action = agent.select_action(state)
+            next_state, reward, done, _ = env.step(action)
+            log_prob = torch.log(torch.tensor(agent.policy_network(state)[action]))
+            log_probs.append(log_prob)
+            rewards.append(reward)
+            state = next_state
+
+        # Update policy
+        agent.update_policy(rewards, log_probs)
+
+        # Logging
+        total_reward = sum(rewards)
+        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
+
 
 if __name__ == '__main__':
 	main()

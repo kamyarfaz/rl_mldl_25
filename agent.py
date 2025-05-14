@@ -1,5 +1,8 @@
 import numpy as np
+import gym
 import torch
+import torch.nn as nn
+import torch.optim as optim
 import torch.nn.functional as F
 from torch.distributions import Normal
 
@@ -11,6 +14,19 @@ def discount_rewards(r, gamma):
         running_add = running_add * gamma + r[t]
         discounted_r[t] = running_add
     return discounted_r
+
+
+class PolicyNetwork(nn.Module):
+    def __init__(self, state_dim, action_dim, hidden_dim=128):
+        super(PolicyNetwork, self).__init__()
+        self.fc1 = nn.Linear(state_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, action_dim)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        return torch.softmax(self.fc3(x), dim=-1)
 
 
 class Policy(torch.nn.Module):
@@ -69,6 +85,40 @@ class Policy(torch.nn.Module):
 
         
         return normal_dist
+
+
+class REINFORCEAgent:
+    def __init__(self, env, learning_rate=1e-3):
+        self.env = env
+        self.policy_network = PolicyNetwork(
+            state_dim=env.observation_space.shape[0],
+            action_dim=env.action_space.n
+        )
+        self.optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
+
+    def select_action(self, state):
+        state = torch.from_numpy(state).float().unsqueeze(0)
+        probs = self.policy_network(state)
+        action = np.random.choice(len(probs.squeeze().detach().numpy()), p=probs.squeeze().detach().numpy())
+        return action
+
+    def update_policy(self, rewards, log_probs):
+        discounted_rewards = self.compute_discounted_rewards(rewards)
+        loss = []
+        for log_prob, reward in zip(log_probs, discounted_rewards):
+            loss.append(-log_prob * reward)
+        loss = torch.cat(loss).sum()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+    def compute_discounted_rewards(self, rewards, gamma=0.99):
+        discounted_rewards = np.zeros_like(rewards)
+        cumulative_reward = 0
+        for t in reversed(range(len(rewards))):
+            cumulative_reward = rewards[t] + gamma * cumulative_reward
+            discounted_rewards[t] = cumulative_reward
+        return discounted_rewards
 
 
 class Agent(object):

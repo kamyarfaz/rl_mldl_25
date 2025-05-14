@@ -100,16 +100,18 @@ class CriticNetwork(nn.Module):
         return self.fc3(x)
 
 
-class ActorCriticAgent:
-    def __init__(self, env, learning_rate=1e-3):
+class REINFORCEAgent:
+    def __init__(self, env, learning_rate=1e-3, baseline=False):
         self.env = env
         self.policy_network = PolicyNetwork(
             state_dim=env.observation_space.shape[0],
             action_dim=env.action_space.shape[0]
         )
-        self.critic_network = CriticNetwork(state_dim=env.observation_space.shape[0])
-        self.policy_optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
-        self.critic_optimizer = optim.Adam(self.critic_network.parameters(), lr=learning_rate)
+        self.optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
+        self.baseline = baseline
+        if baseline:
+            self.value_network = CriticNetwork(state_dim=env.observation_space.shape[0])
+            self.value_optimizer = optim.Adam(self.value_network.parameters(), lr=learning_rate)
 
     def select_action(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0)
@@ -117,26 +119,29 @@ class ActorCriticAgent:
         action = np.random.choice(len(probs.squeeze().detach().numpy()), p=probs.squeeze().detach().numpy())
         return action
 
-    def update_policy(self, rewards, log_probs, states):
+    def update_policy(self, rewards, log_probs, states=None):
         discounted_rewards = self.compute_discounted_rewards(rewards)
-        states = torch.tensor(states, dtype=torch.float32)
-        values = self.critic_network(states).squeeze()
-        advantages = discounted_rewards - values.detach()
+        if self.baseline and states is not None:
+            states = torch.tensor(states, dtype=torch.float32)
+            values = self.value_network(states).squeeze()
+            advantages = discounted_rewards - values.detach()
+
+            # Update value network
+            value_loss = nn.functional.mse_loss(values, discounted_rewards)
+            self.value_optimizer.zero_grad()
+            value_loss.backward()
+            self.value_optimizer.step()
+        else:
+            advantages = discounted_rewards
 
         policy_loss = []
         for log_prob, advantage in zip(log_probs, advantages):
             policy_loss.append(-log_prob * advantage)
         policy_loss = torch.cat(policy_loss).sum()
 
-        self.policy_optimizer.zero_grad()
+        self.optimizer.zero_grad()
         policy_loss.backward()
-        self.policy_optimizer.step()
-
-        # Update critic
-        value_loss = nn.functional.mse_loss(values, discounted_rewards)
-        self.critic_optimizer.zero_grad()
-        value_loss.backward()
-        self.critic_optimizer.step()
+        self.optimizer.step()
 
     def compute_discounted_rewards(self, rewards, gamma=0.99):
         discounted_rewards = np.zeros_like(rewards)
@@ -213,4 +218,39 @@ class Agent(object):
         self.action_log_probs.append(action_log_prob)
         self.rewards.append(torch.Tensor([reward]))
         self.done.append(done)
+
+
+def train_actor_critic(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
+    # Initialize environment and agent
+    env = gym.make(env_name)
+    agent = ActorCriticAgent(env, learning_rate)
+
+    for episode in range(n_episodes):
+        state = env.reset()
+        log_probs = []
+        rewards = []
+        states = []
+        done = False
+
+        while not done:
+            # Convert state to a PyTorch tensor
+            state_tensor = torch.tensor(state, dtype=torch.float32)
+
+            action = agent.select_action(state_tensor)
+            next_state, reward, done, _ = env.step(action)
+            log_prob = torch.log(torch.tensor(agent.policy_network(state_tensor)[action]))
+            log_probs.append(log_prob)
+            rewards.append(reward)
+            states.append(state_tensor)
+            state = next_state
+
+        # Update policy
+        agent.update_policy(rewards, log_probs, states)
+
+        # Logging
+        total_reward = sum(rewards)
+        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
+
+    # Evaluate the agent after training
+    evaluate_agent(env, agent)
 

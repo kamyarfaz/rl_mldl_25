@@ -105,7 +105,7 @@ class ActorCriticAgent:
         self.env = env
         self.policy_network = PolicyNetwork(
             state_dim=env.observation_space.shape[0],
-            action_dim=env.action_space.n
+            action_dim=env.action_space.shape[0]
         )
         self.critic_network = CriticNetwork(state_dim=env.observation_space.shape[0])
         self.policy_optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)

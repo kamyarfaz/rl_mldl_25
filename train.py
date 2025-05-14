@@ -7,7 +7,7 @@ import torch
 import gym
 
 from env.custom_hopper import *
-from agent import Agent, Policy, REINFORCEAgent
+from agent import Agent, Policy, REINFORCEAgent, ActorCriticAgent
 
 
 def parse_args():
@@ -96,5 +96,56 @@ def train_reinforce(env_name='CustomHopper-source-v0', n_episodes=1000, learning
         print(f"Episode {episode + 1}: Total Reward: {total_reward}")
 
 
+def evaluate_agent(env, agent, n_episodes=10):
+    total_rewards = []
+    for episode in range(n_episodes):
+        state = env.reset()
+        done = False
+        episode_reward = 0
+
+        while not done:
+            action = agent.select_action(state)
+            state, reward, done, _ = env.step(action)
+            episode_reward += reward
+
+        total_rewards.append(episode_reward)
+        print(f"Evaluation Episode {episode + 1}: Total Reward: {episode_reward}")
+
+    avg_reward = sum(total_rewards) / n_episodes
+    print(f"Average Reward over {n_episodes} Evaluation Episodes: {avg_reward}")
+
+
+def train_actor_critic(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
+    # Initialize environment and agent
+    env = gym.make(env_name)
+    agent = ActorCriticAgent(env, learning_rate)
+
+    for episode in range(n_episodes):
+        state = env.reset()
+        log_probs = []
+        rewards = []
+        states = []
+        done = False
+
+        while not done:
+            action = agent.select_action(state)
+            next_state, reward, done, _ = env.step(action)
+            log_prob = torch.log(torch.tensor(agent.policy_network(state)[action]))
+            log_probs.append(log_prob)
+            rewards.append(reward)
+            states.append(state)
+            state = next_state
+
+        # Update policy
+        agent.update_policy(rewards, log_probs, states)
+
+        # Logging
+        total_reward = sum(rewards)
+        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
+
+    # Evaluate the agent after training
+    evaluate_agent(env, agent)
+
+
 if __name__ == '__main__':
-	main()
+	train_actor_critic()

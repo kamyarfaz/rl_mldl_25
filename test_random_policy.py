@@ -16,8 +16,13 @@ import pdb
 import gym
 from env.custom_hopper import *
 import numpy as np
-from IPython.display import HTML
-from IPython import display
+try:
+    # For Google Colab
+    from google.colab import output
+    from IPython.display import HTML, display
+    IN_COLAB = True
+except:
+    IN_COLAB = False
 import PIL.Image
 from base64 import b64encode
 
@@ -34,12 +39,13 @@ def create_video_frames(frames, filename='animation.gif', _return=True):
         loop=0,
     )
     
-    if _return:
+    if _return and IN_COLAB:
         # Create HTML animation for notebook display
         with open(filename, 'rb') as f:
             video_file = f.read()
         video_url = data_uri = f'data:image/gif;base64,{b64encode(video_file).decode()}'
         return HTML(f'<img src="{video_url}" />')
+    return None
 
 def main():
 	env = gym.make('CustomHopper-source-v0')
@@ -71,5 +77,5 @@ def main():
 
 if __name__ == '__main__':
 	video = main()
-	if 'google.colab' in str(get_ipython()):
-		display.display(video)
+	if IN_COLAB and video is not None:
+		display(video)

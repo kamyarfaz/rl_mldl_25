@@ -6,17 +6,72 @@
 """
 import gym
 from env.custom_hopper import *
+import os
+from stable_baselines3 import PPO, SAC
+from stable_baselines3.common.callbacks import EvalCallback
+
+def train_agent(env_id, algorithm='PPO', total_timesteps=100000):
+    # Create environment
+    env = gym.make(env_id)
+
+    # Select algorithm
+    if algorithm == 'PPO':
+        model = PPO('MlpPolicy', env, verbose=1)
+    elif algorithm == 'SAC':
+        model = SAC('MlpPolicy', env, verbose=1)
+    else:
+        raise ValueError("Unsupported algorithm. Choose 'PPO' or 'SAC'.")
+
+    # Create evaluation callback
+    eval_env = gym.make(env_id)
+    eval_callback = EvalCallback(eval_env, best_model_save_path='./logs/',
+                                 log_path='./logs/', eval_freq=5000,
+                                 deterministic=True, render=False)
+
+    # Train the agent
+    model.learn(total_timesteps=total_timesteps, callback=eval_callback)
+
+    # Save the model
+    model_path = f"{algorithm}_hopper_model.zip"
+    model.save(model_path)
+    print(f"Model saved to {model_path}")
+
+    return model
 
 def main():
-    train_env = gym.make('CustomHopper-source-v0')
+    train_env_id = 'CustomHopper-source-v0'
+    test_env_id = 'CustomHopper-target-v0'
 
-    print('State space:', train_env.observation_space)  # state-space
-    print('Action space:', train_env.action_space)  # action-space
-    print('Dynamics parameters:', train_env.get_parameters())  # masses of each link of the Hopper
+    # Train PPO agent
+    print("Training PPO agent...")
+    ppo_model = train_agent(train_env_id, algorithm='PPO')
 
-    #
-    # TASK 4 & 5: train and test policies on the Hopper env with stable-baselines3
-    #
+    # Train SAC agent
+    print("Training SAC agent...")
+    sac_model = train_agent(train_env_id, algorithm='SAC')
+
+    # Evaluate models
+    print("Evaluating PPO agent...")
+    evaluate_agent(ppo_model, test_env_id)
+
+    print("Evaluating SAC agent...")
+    evaluate_agent(sac_model, test_env_id)
+
+def evaluate_agent(model, env_id, n_episodes=10):
+    env = gym.make(env_id)
+    total_rewards = []
+    for episode in range(n_episodes):
+        obs = env.reset()
+        done = False
+        episode_reward = 0
+        while not done:
+            action, _states = model.predict(obs, deterministic=True)
+            obs, reward, done, info = env.step(action)
+            episode_reward += reward
+        total_rewards.append(episode_reward)
+        print(f"Episode {episode + 1}: Total Reward: {episode_reward}")
+    avg_reward = sum(total_rewards) / n_episodes
+    print(f"Average Reward over {n_episodes} Evaluation Episodes: {avg_reward}")
 
 if __name__ == '__main__':
     main()

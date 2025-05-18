@@ -100,16 +100,16 @@ class CriticNetwork(nn.Module):
         return self.fc3(x)
 
 
-class ActorCriticAgent:
-    def __init__(self, env, learning_rate=1e-3):
+class REINFORCEAgent:
+    def __init__(self, env, learning_rate=1e-3, baseline=False):
         self.env = env
         self.policy_network = PolicyNetwork(
             state_dim=env.observation_space.shape[0],
             action_dim=env.action_space.shape[0]
         )
-        self.value_network = CriticNetwork(state_dim=env.observation_space.shape[0])
-        self.policy_optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
-        self.value_optimizer = optim.Adam(self.value_network.parameters(), lr=learning_rate)
+        self.optimizer = optim.Adam(self.policy_network.parameters(), lr=learning_rate)
+        self.baseline = baseline
+        self.value_network = CriticNetwork(state_dim=env.observation_space.shape[0]) if baseline else None
 
     def select_action(self, state):
         state = torch.from_numpy(state).float().unsqueeze(0)
@@ -119,15 +119,18 @@ class ActorCriticAgent:
 
     def update_policy(self, rewards, log_probs, states):
         discounted_rewards = self.compute_discounted_rewards(rewards)
-        states = torch.tensor(states, dtype=torch.float32)
-        values = self.value_network(states).squeeze()
-        advantages = discounted_rewards - values.detach()
+        if self.baseline:
+            states = torch.tensor(states, dtype=torch.float32)
+            values = self.value_network(states).squeeze()
+            advantages = discounted_rewards - values.detach()
 
-        # Update value network
-        value_loss = nn.functional.mse_loss(values, discounted_rewards)
-        self.value_optimizer.zero_grad()
-        value_loss.backward()
-        self.value_optimizer.step()
+            # Update value network
+            value_loss = nn.functional.mse_loss(values, discounted_rewards)
+            self.optimizer.zero_grad()
+            value_loss.backward()
+            self.optimizer.step()
+        else:
+            advantages = discounted_rewards
 
         # Update policy network
         policy_loss = []
@@ -135,9 +138,9 @@ class ActorCriticAgent:
             policy_loss.append(-log_prob * advantage)
         policy_loss = torch.cat(policy_loss).sum()
 
-        self.policy_optimizer.zero_grad()
+        self.optimizer.zero_grad()
         policy_loss.backward()
-        self.policy_optimizer.step()
+        self.optimizer.step()
 
     def compute_discounted_rewards(self, rewards, gamma=0.99):
         discounted_rewards = np.zeros_like(rewards)
@@ -219,7 +222,7 @@ class Agent(object):
 def train_actor_critic(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
     # Initialize environment and agent
     env = gym.make(env_name)
-    agent = ActorCriticAgent(env, learning_rate)
+    agent = REINFORCEAgent(env, learning_rate)
 
     for episode in range(n_episodes):
         state = env.reset()

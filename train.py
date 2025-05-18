@@ -5,6 +5,9 @@ import argparse
 
 import torch
 import gym
+import numpy as np
+from stable_baselines3 import PPO, SAC
+from stable_baselines3.common.callbacks import EvalCallback
 
 from env.custom_hopper import *
 from agent import Agent, Policy, ActorCriticAgent
@@ -21,53 +24,95 @@ def parse_args():
 args = parse_args()
 
 
+def apply_domain_randomization(env):
+    # Randomize the masses of the Hopper's links, except the torso
+    body_names = env.sim.model.body_names
+    for i, body_name in enumerate(body_names):
+        if body_name != 'torso':  # Do not randomize the torso mass
+            env.sim.model.body_mass[i] *= np.random.uniform(0.8, 1.2)
+
+
+def train_with_domain_randomization(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
+    # Initialize environment and agent
+    env = gym.make(env_name)
+    agent = REINFORCEAgent(env, learning_rate)
+
+    for episode in range(n_episodes):
+        apply_domain_randomization(env)  # Apply domain randomization
+        state = env.reset()
+        log_probs = []
+        rewards = []
+        done = False
+
+        while not done:
+            action = agent.select_action(state)
+            next_state, reward, done, _ = env.step(action)
+            log_prob = torch.log(torch.tensor(agent.policy_network(state)[action]))
+            log_probs.append(log_prob)
+            rewards.append(reward)
+            state = next_state
+
+        # Update policy
+        agent.update_policy(rewards, log_probs)
+
+        # Logging
+        total_reward = sum(rewards)
+        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
+
+    # Evaluate the agent after training
+    evaluate_agent(env, agent)
+
+
+def train_sb3_agent(env_id, algorithm='PPO', total_timesteps=100000):
+    # Create environment
+    env = gym.make(env_id)
+
+    # Select algorithm
+    if algorithm == 'PPO':
+        model = PPO('MlpPolicy', env, verbose=1)
+    elif algorithm == 'SAC':
+        model = SAC('MlpPolicy', env, verbose=1)
+    else:
+        raise ValueError("Unsupported algorithm. Choose 'PPO' or 'SAC'.")
+
+    # Create evaluation callback
+    eval_env = gym.make(env_id)
+    eval_callback = EvalCallback(eval_env, best_model_save_path='./logs/',
+                                 log_path='./logs/', eval_freq=5000,
+                                 deterministic=True, render=False)
+
+    # Train the agent
+    model.learn(total_timesteps=total_timesteps, callback=eval_callback)
+
+    # Save the model
+    model_path = f"{algorithm}_hopper_model.zip"
+    model.save(model_path)
+    print(f"Model saved to {model_path}")
+
+    return model
+
+
 def main():
+    # Train and evaluate with domain randomization
+    print("Training with domain randomization...")
+    train_with_domain_randomization()
 
-	env = gym.make('CustomHopper-source-v0')
-	# env = gym.make('CustomHopper-target-v0')
+    # Train and evaluate without domain randomization
+    print("Training without domain randomization...")
+    train_reinforce()
 
-	print('Action space:', env.action_space)
-	print('State space:', env.observation_space)
-	print('Dynamics parameters:', env.get_parameters())
+    # Train and evaluate using Actor-Critic
+    print("Training with Actor-Critic...")
+    train_actor_critic()
 
+    # Train and evaluate using PPO
+    print("Training with PPO...")
+    train_sb3_agent('CustomHopper-source-v0', algorithm='PPO')
 
-	"""
-		Training
-	"""
-	observation_space_dim = env.observation_space.shape[-1]
-	action_space_dim = env.action_space.shape[-1]
+    # Train and evaluate using SAC
+    print("Training with SAC...")
+    train_sb3_agent('CustomHopper-source-v0', algorithm='SAC')
 
-	policy = Policy(observation_space_dim, action_space_dim)
-	agent = Agent(policy, device=args.device)
-
-    #
-    # TASK 2 and 3: interleave data collection to policy updates
-    #
-
-	for episode in range(args.n_episodes):
-		done = False
-		train_reward = 0
-		state = env.reset()  # Reset the environment and observe the initial state
-
-		while not done:  # Loop until the episode is over
-
-			action, action_probabilities = agent.get_action(state)
-			previous_state = state
-
-			state, reward, done, info = env.step(action.detach().cpu().numpy())
-
-			agent.store_outcome(previous_state, state, action_probabilities, reward, done)
-
-			train_reward += reward
-		
-		if (episode+1)%args.print_every == 0:
-			print('Training episode:', episode)
-			print('Episode return:', train_reward)
-
-
-	torch.save(agent.policy.state_dict(), "model.mdl")
-
-	
 
 def train_reinforce(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
     # Initialize environment and agent
@@ -148,4 +193,4 @@ def train_actor_critic(env_name='CustomHopper-source-v0', n_episodes=1000, learn
 
 
 if __name__ == '__main__':
-	train_actor_critic()
+	main()

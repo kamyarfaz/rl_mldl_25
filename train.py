@@ -35,40 +35,47 @@ def apply_domain_randomization(env):
 def train_with_domain_randomization(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
     # Initialize environment and agent
     env = gym.make(env_name)
-    agent = REINFORCEAgent(env, learning_rate)
-
+    agent = REINFORCEAgent(env, learning_rate=learning_rate)
+    
+    # Domain randomization parameters
+    mass_range = (0.8, 1.2)  # Randomize mass between 80% and 120% of original
+    friction_range = (0.8, 1.2)  # Randomize friction between 80% and 120% of original
+    
     for episode in range(n_episodes):
-        # Use the environment's set_random_parameters if available
-        if hasattr(env, 'set_random_parameters'):
-            env.set_random_parameters()
-        else:
-            apply_domain_randomization(env)
         state = env.reset()
-        log_probs = []
-        rewards = []
-        states = []
         done = False
-
+        rewards = []
+        log_probs = []
+        states = []  # Store states for policy update
+        
+        # Apply domain randomization at the start of each episode
+        env.model.body_mass[1:] *= np.random.uniform(*mass_range)  # Randomize mass of all bodies except the base
+        env.model.geom_friction[1:, 0] *= np.random.uniform(*friction_range)  # Randomize friction of all geoms except the base
+        
         while not done:
-            action = agent.select_action(state)
-            next_state, reward, done, _ = env.step(action)
             state_tensor = torch.from_numpy(state).float().unsqueeze(0)
             action_probs = agent.policy_network(state_tensor)
-            log_prob = torch.log(action_probs[0, action])
-            log_probs.append(log_prob)
+            action = np.random.choice(len(action_probs.squeeze().detach().numpy()), 
+                                    p=action_probs.squeeze().detach().numpy())
+            
+            # Store state before taking action
+            states.append(state)  # Store original numpy array state
+            
+            next_state, reward, done, _ = env.step(action)
             rewards.append(reward)
-            states.append(state)
+            log_probs.append(torch.log(action_probs[0][action]))
+            
             state = next_state
-
-        # Update policy with states
+            
+        # Convert states to numpy arrays if they aren't already
+        states = [np.array(s) for s in states]
         agent.update_policy(rewards, log_probs, states)
-
-        # Logging
-        total_reward = sum(rewards)
-        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
-
-    # Evaluate the agent after training
-    evaluate_agent(env, agent)
+        
+        if (episode + 1) % 10 == 0:
+            print(f"Episode {episode + 1}, Total Reward: {sum(rewards)}")
+    
+    env.close()
+    return agent
 
 
 def train_sb3_agent(env_id, algorithm='PPO', total_timesteps=100000):
@@ -125,32 +132,39 @@ def main():
 def train_reinforce(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
     # Initialize environment and agent
     env = gym.make(env_name)
-    agent = REINFORCEAgent(env, learning_rate)
-
+    agent = REINFORCEAgent(env, learning_rate=learning_rate)
+    
     for episode in range(n_episodes):
         state = env.reset()
-        log_probs = []
-        rewards = []
-        states = []
         done = False
-
+        rewards = []
+        log_probs = []
+        states = []  # Store states for policy update
+        
         while not done:
-            action = agent.select_action(state)
-            next_state, reward, done, _ = env.step(action)
             state_tensor = torch.from_numpy(state).float().unsqueeze(0)
             action_probs = agent.policy_network(state_tensor)
-            log_prob = torch.log(action_probs[0, action])
-            log_probs.append(log_prob)
+            action = np.random.choice(len(action_probs.squeeze().detach().numpy()), 
+                                    p=action_probs.squeeze().detach().numpy())
+            
+            # Store state before taking action
+            states.append(state)  # Store original numpy array state
+            
+            next_state, reward, done, _ = env.step(action)
             rewards.append(reward)
-            states.append(state)
+            log_probs.append(torch.log(action_probs[0][action]))
+            
             state = next_state
-
-        # Update policy with states
+            
+        # Convert states to numpy arrays if they aren't already
+        states = [np.array(s) for s in states]
         agent.update_policy(rewards, log_probs, states)
-
-        # Logging
-        total_reward = sum(rewards)
-        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
+        
+        if (episode + 1) % 10 == 0:
+            print(f"Episode {episode + 1}, Total Reward: {sum(rewards)}")
+    
+    env.close()
+    return agent
 
 
 def evaluate_agent(env, agent, n_episodes=10):

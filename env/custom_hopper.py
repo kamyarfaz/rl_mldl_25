@@ -28,14 +28,14 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
 
     def sample_parameters(self):
         """Sample masses according to a domain randomization distribution"""
-        
-        #
-        # TASK 6: implement domain randomization. Remember to sample new dynamics parameter
-        #         at the start of each training episode.
-        
-        raise NotImplementedError()
-
-        return
+        # Uniform domain randomization for each link (except torso)
+        # Torso is index 0 in self.original_masses, so skip it
+        masses = np.copy(self.original_masses)
+        # Randomize thigh, leg, foot (indices 1, 2, 3)
+        for i in range(1, len(masses)):
+            masses[i] = np.random.uniform(0.8 * self.original_masses[i], 1.2 * self.original_masses[i])
+        # Torso mass remains fixed (source domain already applies -30% if needed)
+        return masses
 
 
     def get_parameters(self):

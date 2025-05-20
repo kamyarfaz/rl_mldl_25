@@ -10,7 +10,7 @@ from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.callbacks import EvalCallback
 
 from env.custom_hopper import *
-from agent import Agent, Policy, ActorCriticAgent
+from agent import Agent, Policy, ActorCriticAgent, REINFORCEAgent
 
 
 def parse_args():
@@ -38,7 +38,11 @@ def train_with_domain_randomization(env_name='CustomHopper-source-v0', n_episode
     agent = REINFORCEAgent(env, learning_rate)
 
     for episode in range(n_episodes):
-        apply_domain_randomization(env)  # Apply domain randomization
+        # Use the environment's set_random_parameters if available
+        if hasattr(env, 'set_random_parameters'):
+            env.set_random_parameters()
+        else:
+            apply_domain_randomization(env)
         state = env.reset()
         log_probs = []
         rewards = []

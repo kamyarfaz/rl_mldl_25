@@ -46,21 +46,22 @@ def train_with_domain_randomization(env_name='CustomHopper-source-v0', n_episode
         state = env.reset()
         log_probs = []
         rewards = []
+        states = []
         done = False
 
         while not done:
             action = agent.select_action(state)
             next_state, reward, done, _ = env.step(action)
-            # Convert state to tensor before passing to policy_network
             state_tensor = torch.from_numpy(state).float().unsqueeze(0)
             action_probs = agent.policy_network(state_tensor)
             log_prob = torch.log(action_probs[0, action])
             log_probs.append(log_prob)
             rewards.append(reward)
+            states.append(state)
             state = next_state
 
-        # Update policy
-        agent.update_policy(rewards, log_probs)
+        # Update policy with states
+        agent.update_policy(rewards, log_probs, states)
 
         # Logging
         total_reward = sum(rewards)
@@ -130,21 +131,22 @@ def train_reinforce(env_name='CustomHopper-source-v0', n_episodes=1000, learning
         state = env.reset()
         log_probs = []
         rewards = []
+        states = []
         done = False
 
         while not done:
             action = agent.select_action(state)
             next_state, reward, done, _ = env.step(action)
-            # Convert state to tensor before passing to policy_network
             state_tensor = torch.from_numpy(state).float().unsqueeze(0)
             action_probs = agent.policy_network(state_tensor)
             log_prob = torch.log(action_probs[0, action])
             log_probs.append(log_prob)
             rewards.append(reward)
+            states.append(state)
             state = next_state
 
-        # Update policy
-        agent.update_policy(rewards, log_probs)
+        # Update policy with states
+        agent.update_policy(rewards, log_probs, states)
 
         # Logging
         total_reward = sum(rewards)

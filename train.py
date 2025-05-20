@@ -51,7 +51,10 @@ def train_with_domain_randomization(env_name='CustomHopper-source-v0', n_episode
         while not done:
             action = agent.select_action(state)
             next_state, reward, done, _ = env.step(action)
-            log_prob = torch.log(torch.tensor(agent.policy_network(state)[action]))
+            # Convert state to tensor before passing to policy_network
+            state_tensor = torch.from_numpy(state).float().unsqueeze(0)
+            action_probs = agent.policy_network(state_tensor)
+            log_prob = torch.log(action_probs[0, action])
             log_probs.append(log_prob)
             rewards.append(reward)
             state = next_state
@@ -132,7 +135,10 @@ def train_reinforce(env_name='CustomHopper-source-v0', n_episodes=1000, learning
         while not done:
             action = agent.select_action(state)
             next_state, reward, done, _ = env.step(action)
-            log_prob = torch.log(torch.tensor(agent.policy_network(state)[action]))
+            # Convert state to tensor before passing to policy_network
+            state_tensor = torch.from_numpy(state).float().unsqueeze(0)
+            action_probs = agent.policy_network(state_tensor)
+            log_prob = torch.log(action_probs[0, action])
             log_probs.append(log_prob)
             rewards.append(reward)
             state = next_state
@@ -179,7 +185,10 @@ def train_actor_critic(env_name='CustomHopper-source-v0', n_episodes=1000, learn
         while not done:
             action = agent.select_action(state)
             next_state, reward, done, _ = env.step(action)
-            log_prob = torch.log(torch.tensor(agent.policy_network(state)[action]))
+            # Convert state to tensor before passing to policy_network
+            state_tensor = torch.from_numpy(state).float().unsqueeze(0)
+            action_probs = agent.policy_network(state_tensor)
+            log_prob = torch.log(action_probs[0, action])
             log_probs.append(log_prob)
             rewards.append(reward)
             states.append(state)

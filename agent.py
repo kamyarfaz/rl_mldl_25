@@ -140,7 +140,13 @@ class REINFORCEAgent:
         # Update policy network
         policy_loss = []
         for log_prob, advantage in zip(log_probs, advantages):
-            policy_loss.append(-log_prob * advantage)
+            # Ensure log_prob and advantage are at least 1-dimensional
+            if log_prob.dim() == 0:
+                log_prob = log_prob.unsqueeze(0)
+            if isinstance(advantage, torch.Tensor) and advantage.dim() == 0:
+                advantage = advantage.unsqueeze(0)
+            policy_loss.append((-log_prob * advantage).unsqueeze(0))
+        
         policy_loss = torch.cat(policy_loss).sum()
 
         self.optimizer.zero_grad()

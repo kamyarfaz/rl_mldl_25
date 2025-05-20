@@ -54,6 +54,9 @@ class Policy(torch.nn.Module):
             Critic network
         """
         # TASK 3: critic network for actor-critic algorithm
+        self.fc1_critic = torch.nn.Linear(state_space, self.hidden)
+        self.fc2_critic = torch.nn.Linear(self.hidden, self.hidden)
+        self.fc3_critic = torch.nn.Linear(self.hidden, 1)
 
 
         self.init_weights()
@@ -82,9 +85,11 @@ class Policy(torch.nn.Module):
             Critic
         """
         # TASK 3: forward in the critic network
-
+        x_critic = self.tanh(self.fc1_critic(x))
+        x_critic = self.tanh(self.fc2_critic(x_critic))
+        value = self.fc3_critic(x_critic)
         
-        return normal_dist
+        return normal_dist, value
 
 
 class CriticNetwork(nn.Module):
@@ -219,36 +224,94 @@ class Agent(object):
         self.done.append(done)
 
 
+class ActorCriticAgent(Agent):
+    def __init__(self, policy, device='cpu'):
+        super().__init__(policy, device)
+        self.value_loss_fn = nn.MSELoss()
+
+    def update_policy(self):
+        action_log_probs = torch.stack(self.action_log_probs, dim=0).to(self.train_device).squeeze(-1)
+        states = torch.stack(self.states, dim=0).to(self.train_device).squeeze(-1)
+        next_states = torch.stack(self.next_states, dim=0).to(self.train_device).squeeze(-1)
+        rewards = torch.stack(self.rewards, dim=0).to(self.train_device).squeeze(-1)
+        done = torch.Tensor(self.done).to(self.train_device)
+
+        self.states, self.next_states, self.action_log_probs, self.rewards, self.done = [], [], [], [], []
+
+        # Compute returns and advantages using bootstrapping
+        with torch.no_grad():
+            # Get value estimates for current states and next states
+            _, values = self.policy(states)
+            _, next_values = self.policy(next_states)
+            
+            # Compute TD targets and advantages
+            next_values = next_values.squeeze(-1)
+            values = values.squeeze(-1)
+            
+            # Handle terminal states
+            next_values = next_values * (1 - done)
+            
+            # Compute TD targets: r + gamma * V(s')
+            td_targets = rewards + self.gamma * next_values
+            
+            # Compute advantages: TD target - V(s)
+            advantages = td_targets - values
+            
+            # Normalize advantages
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        # Compute actor (policy) loss
+        actor_loss = -(action_log_probs * advantages.detach()).mean()
+        
+        # Compute critic (value) loss
+        critic_loss = self.value_loss_fn(values, td_targets.detach())
+        
+        # Total loss
+        total_loss = actor_loss + 0.5 * critic_loss  # 0.5 is a coefficient to balance actor and critic losses
+        
+        # Update policy
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+        
+        return actor_loss.item(), critic_loss.item()
+
+    def get_action(self, state, evaluation=False):
+        """ state -> action (3-d), action_log_densities, value """
+        x = torch.from_numpy(state).float().to(self.train_device)
+
+        normal_dist, value = self.policy(x)
+
+        if evaluation:  # Return mean
+            return normal_dist.mean, None, value
+
+        else:   # Sample from the distribution
+            action = normal_dist.sample()
+            action_log_prob = normal_dist.log_prob(action).sum()
+            return action, action_log_prob, value
+
+    def store_outcome(self, state, next_state, action_log_prob, reward, done):
+        super().store_outcome(state, next_state, action_log_prob, reward, done)
+
+
 def train_actor_critic(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
     # Initialize environment and agent
     env = gym.make(env_name)
-    agent = REINFORCEAgent(env, learning_rate)
+    agent = ActorCriticAgent(policy=Policy(state_space=env.observation_space.shape[0], action_space=env.action_space.shape[0]))
 
     for episode in range(n_episodes):
         state = env.reset()
-        log_probs = []
-        rewards = []
-        states = []
         done = False
-
         while not done:
-            # Convert state to a PyTorch tensor
-            state_tensor = torch.tensor(state, dtype=torch.float32)
-
-            action = agent.select_action(state_tensor)
-            next_state, reward, done, _ = env.step(action)
-            log_prob = torch.log(torch.tensor(agent.policy_network(state_tensor)[action]))
-            log_probs.append(log_prob)
-            rewards.append(reward)
-            states.append(state_tensor)
+            action, log_prob, value = agent.get_action(state)
+            next_state, reward, done, _ = env.step(action.cpu().numpy())
+            agent.store_outcome(state, next_state, log_prob, reward, done)
             state = next_state
-
-        # Update policy
-        agent.update_policy(rewards, log_probs, states)
+        actor_loss, critic_loss = agent.update_policy()
 
         # Logging
-        total_reward = sum(rewards)
-        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
+        total_reward = sum(agent.rewards)
+        print(f"Episode {episode + 1}: Total Reward: {total_reward}, Actor Loss: {actor_loss}, Critic Loss: {critic_loss}")
 
     # Evaluate the agent after training
     evaluate_agent(env, agent)

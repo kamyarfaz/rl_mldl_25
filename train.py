@@ -175,7 +175,13 @@ def evaluate_agent(env, agent, n_episodes=10):
         episode_reward = 0
 
         while not done:
-            action = agent.select_action(state)
+            # Handle different agent types
+            if hasattr(agent, 'select_action'):
+                action = agent.select_action(state)
+            else:  # ActorCriticAgent
+                action, _, _ = agent.get_action(state, evaluation=True)
+                action = action.cpu().numpy()
+            
             state, reward, done, _ = env.step(action)
             episode_reward += reward
 

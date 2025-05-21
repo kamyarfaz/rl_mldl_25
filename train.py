@@ -189,33 +189,22 @@ def evaluate_agent(env, agent, n_episodes=10):
 def train_actor_critic(env_name='CustomHopper-source-v0', n_episodes=1000, learning_rate=1e-3):
     # Initialize environment and agent
     env = gym.make(env_name)
-    agent = ActorCriticAgent(env, learning_rate)
+    policy = Policy(state_space=env.observation_space.shape[0], action_space=env.action_space.shape[0])
+    agent = ActorCriticAgent(policy=policy, device='cpu')
 
     for episode in range(n_episodes):
         state = env.reset()
-        log_probs = []
-        rewards = []
-        states = []
         done = False
-
         while not done:
-            action = agent.select_action(state)
-            next_state, reward, done, _ = env.step(action)
-            # Convert state to tensor before passing to policy_network
-            state_tensor = torch.from_numpy(state).float().unsqueeze(0)
-            action_probs = agent.policy_network(state_tensor)
-            log_prob = torch.log(action_probs[0, action])
-            log_probs.append(log_prob)
-            rewards.append(reward)
-            states.append(state)
+            action, log_prob, value = agent.get_action(state)
+            next_state, reward, done, _ = env.step(action.cpu().numpy())
+            agent.store_outcome(state, next_state, log_prob, reward, done)
             state = next_state
-
-        # Update policy
-        agent.update_policy(rewards, log_probs, states)
+        actor_loss, critic_loss = agent.update_policy()
 
         # Logging
-        total_reward = sum(rewards)
-        print(f"Episode {episode + 1}: Total Reward: {total_reward}")
+        if (episode + 1) % 10 == 0:
+            print(f"Episode {episode + 1}: Actor Loss: {actor_loss}, Critic Loss: {critic_loss}")
 
     # Evaluate the agent after training
     evaluate_agent(env, agent)

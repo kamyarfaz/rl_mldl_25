@@ -180,7 +180,7 @@ def evaluate_agent(env, agent, n_episodes=10):
                 action = agent.select_action(state)
             else:  # ActorCriticAgent
                 action, _, _ = agent.get_action(state, evaluation=True)
-                action = action.cpu().numpy()
+                action = action.detach().cpu().numpy()  # Detach before converting to numpy
             
             state, reward, done, _ = env.step(action)
             episode_reward += reward
